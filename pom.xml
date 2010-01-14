@@ -4,7 +4,7 @@
     <artifactId>vmstat-report</artifactId>
     <packaging>jar</packaging>
     <name>vmstat-report</name>
-    <version>0.1-SNAPSHOT</version>
+    <version>0.1</version>
     <parent>
         <artifactId>mobicents</artifactId>
         <groupId>org.mobicents</groupId>
@@ -131,4 +131,10 @@
             </snapshots>
         </repository>
     </repositories>
+
+  <scm>
+    <connection>scm:svn:https://mobicents.googlecode.com/svn/tags/parent/vmstat-report-0.1</connection>
+    <developerConnection>scm:svn:https://mobicents.googlecode.com/svn/tags/parent/vmstat-report-0.1</developerConnection>
+    <url>http://mobicents.googlecode.com/svn/tags/parent/vmstat-report-0.1</url>
+  </scm>
 </project>
