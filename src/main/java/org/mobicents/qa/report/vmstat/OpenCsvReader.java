@@ -224,7 +224,9 @@ public class OpenCsvReader {
                 }
             }
         } while (inQuotes);
-        tokensOnThisLine.add(sb.toString());
+        if (sb.length() != 0) {
+            tokensOnThisLine.add(sb.toString());
+        }
         return (String[]) tokensOnThisLine.toArray(new String[0]);
         
     }

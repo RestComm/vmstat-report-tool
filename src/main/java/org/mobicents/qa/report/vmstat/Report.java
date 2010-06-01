@@ -45,13 +45,24 @@ public class Report {
     };
     
     private static Set<String> selectedCategories = new HashSet<String>();
+    private static Set<String> capacityCategories = new HashSet<String>();
+    
     private static Map<String, String> categoriesTranslator = new HashMap<String, String>();
     
     static {
-        String[] selected = new String[] { "r", "b", "swpd", "bi", "bo", "in", "cs", "us", "sy", "id", "wa", "st" };
+        String[] selected_vmstat = new String[] { "r", "b", "swpd", "bi", "bo", "in", "cs", "us", "sy", "id", "wa", "st" };
+        String[] selected_jstat = new String[] { "Timestamp", "EU", "OU", "PU", "YGC", "YGCT", "FGC", "FGCT", "S0", "S1", "E", "O", "P"};
         
-        for (String category : selected) {
+        String[] jstat_capacity = new String[] { "S0C", "S1C", "EC", "OC", "PC" };
+        
+        for (String category : selected_vmstat) {
             selectedCategories.add(category);
+        }
+        for (String category : selected_jstat) {
+            selectedCategories.add(category);
+        }
+        for (String category : jstat_capacity) {
+            capacityCategories.add(category);
         }
         
         categoriesTranslator.put("r", "Processes waiting for runtime");
@@ -73,9 +84,66 @@ public class Report {
         categoriesTranslator.put("id", "Idle time (%)");
         categoriesTranslator.put("wa", "Waiting for IO time (%)");
         categoriesTranslator.put("st", "Time stolen from a virtual machine (%)");
+        
+        categoriesTranslator.put("Timestamp", "Timestamp");
+        
+        categoriesTranslator.put("Loaded", "Number of classes loaded");
+        categoriesTranslator.put("Unloaded", "Number of classes unloaded");
+        categoriesTranslator.put("Bytes", "Number of Kbytes loaded / unloaded (?)");
+        categoriesTranslator.put("Time", "Time spent in the tasks");
+        
+        categoriesTranslator.put("Compiled", "Number of compilation tasks performed");
+        categoriesTranslator.put("Failed", "Number of compilation tasks that failed");
+        categoriesTranslator.put("Invalid", "Number of compilation tasks that were invalidated");
+        categoriesTranslator.put("FailedType", "Compile type of the last failed compilation");
+        categoriesTranslator.put("FailedMethod", "Class name and method for the last failed compilation");
+        
+        categoriesTranslator.put("NGCMN", "Minimum new generation capacity (KB)");
+        categoriesTranslator.put("NGCMX", "Maximum new generation capacity (KB)");
+        categoriesTranslator.put("NGC", "New generation capacity (KB)");
+        categoriesTranslator.put("NGU", "New generation usage (KB)");
+        categoriesTranslator.put("S0CMX", "Maximum survivor space 0 capacity (KB)");
+        categoriesTranslator.put("S0C", "Survivor space 0 capacity (KB)");
+        categoriesTranslator.put("S1CMX", "Maximum survivor space 1 capacity (KB)");
+        categoriesTranslator.put("S1C", "Survivor space 0 capacity (KB)");
+        categoriesTranslator.put("S0U", "Survivor space 0 usage (KB)");
+        categoriesTranslator.put("S1U", "Survivor space 1 usage (KB)");
+        categoriesTranslator.put("S0", "Survivor space 0 usage (%)");
+        categoriesTranslator.put("S1", "Survivor space 1 usage (%)");
+        categoriesTranslator.put("ECMX", "Maximum eden space capacity (KB)");
+        categoriesTranslator.put("EC", "Eden space capacity (KB)");
+        categoriesTranslator.put("EU", "Eden space usage (KB)");
+        categoriesTranslator.put("E", "Eden space usage (%)");
+        categoriesTranslator.put("TT", "Tenuring threshold");
+        categoriesTranslator.put("MTT", "Maximum tenuring threshold");
+        categoriesTranslator.put("DSS", "Desired survivor size (KB)");
+        
+        categoriesTranslator.put("OGCMN", "Minimum old generation capacity (KB)");
+        categoriesTranslator.put("OGCMX", "Maximum old generation capacity (KB)");
+        categoriesTranslator.put("OGC", "Old generation capacity (KB)");
+        categoriesTranslator.put("OC", "Old space capacity (KB)");
+        categoriesTranslator.put("OU", "Old space usage (KB)");
+        categoriesTranslator.put("O", "Old space usage (%)");
+        
+        categoriesTranslator.put("PGCMN", "Minimum permanent generation capacity (KB)");
+        categoriesTranslator.put("PGCMX", "Maximum permanent generation capacity (KB)");
+        categoriesTranslator.put("PGC", "Permanent generation capacity (KB)");
+        categoriesTranslator.put("PC", "Permanent space capacity (KB)");
+        categoriesTranslator.put("PU", "Permanent space usage (KB)");
+        categoriesTranslator.put("P", "Permanent space usage (%)");
+        
+        categoriesTranslator.put("YGC", "Number of young generation GC Events");
+        categoriesTranslator.put("YGCT", "Young garbage collection time");
+        categoriesTranslator.put("FGC", "Number of full GC Events");
+        categoriesTranslator.put("FGCT", "Full garbage collection time");
+        categoriesTranslator.put("GCT", "Total garbage collection time");
+        
+        categoriesTranslator.put("Size", "Number of bytes of bytecode for the method");
+        categoriesTranslator.put("Type", "Compilation type");
+        categoriesTranslator.put("Method", "Method name is the method within the given class");
     }
     
-    private static double period = 1000;
+    private static double period = 1;
     
     private static boolean allCharts = false;
     
@@ -101,7 +169,7 @@ public class Report {
         // Setup Log4j
         Logger.getRootLogger().addAppender(new ConsoleAppender(new PatternLayout("%c %-5p %m%n")));
         logger.setLevel(Level.INFO);
-        logger.info("Sipp Report Tool starting ... ");
+        logger.info("VMStat Report Tool starting ... ");
         
         // Search for -d flag
         for (String string : args) {
@@ -207,11 +275,16 @@ public class Report {
             // Create a CSV reader
             OpenCsvReader csv = new OpenCsvReader(new FileReader(filename), ' ', '\"');
             
-            // Skip first line
-            csv.readNext();
-            
             // Get categories
-            String[] categories = csv.readNext();
+            String[] categories;
+            String[] firstLine = csv.readNext();
+            
+            if (firstLine[0].startsWith("procs")) {
+                // vmstat prints an extra header line that starts with "procs". Skip it.
+                categories = csv.readNext();
+            } else {
+                categories = firstLine;
+            }
             
             if (logger.isDebugEnabled()) {
                 logger.debug("Categories read from CSV: " + Arrays.toString(categories));
@@ -240,6 +313,11 @@ public class Report {
                     continue;
                 }
                 
+                if (capacityCategories.contains(categories[i])) {
+                    logger.debug("Category " + categories[i] + " is capacity category. Skipping.");
+                    continue;
+                }
+                
                 // check for usable colums
                 try {
                     Double.parseDouble(values.get(0)[i]);
@@ -254,17 +332,20 @@ public class Report {
                 // convert values
                 DefaultXYDataset dataset = new DefaultXYDataset();
                 
-                int n = 0;
-                double[] valueData = new double[rows];
+                double[] valueData = Report.getDoubleFromValues(values, rows, i);
                 
-                switch (categoryTypes.get(categories[i])) {
-                case DOUBLE:
-                    for (String[] value : values) {
-                        valueData[n++] = Double.parseDouble(value[i]);
+                // Check if a capacity category exists
+                String correspondingCapacityCategory = categories[i].substring(0, categories[i].length() - 1) + "C";
+                if (capacityCategories.contains(correspondingCapacityCategory)) {
+                    for (int j = 0; j < categories.length; j++) {
+                        if (correspondingCapacityCategory.equals(categories[j])) {
+                            
+                            logger.debug("Category " + categories[i] + " has corresponding capacity catagory. Adding to graph.");
+                            
+                            dataset.addSeries(categories[i] + " capacity", new double[][] { referenceData, Report.getDoubleFromValues(values, rows, j) });
+                            break;
+                        }
                     }
-                    break;
-                default:
-                    break;
                 }
                 
                 dataset.addSeries(categories[i] + " average", new double[][] { referenceData, Report.runningAverage(valueData) });
@@ -325,6 +406,16 @@ public class Report {
         } catch (DocumentException e) {
             logger.warn("DocumentException: " + e.getMessage(), e);
         }
+    }
+    
+    private static double[] getDoubleFromValues(List<String[]> values, int rows, int i) {
+        int n = 0;
+        double[] valueData = new double[rows];
+        
+        for (String[] value : values) {
+            valueData[n++] = Double.parseDouble(value[i]);
+        }
+        return valueData;
     }
     
     private static double[] runningAverage(double[] valueData) {
