@@ -46,14 +46,16 @@ public class Report {
     
     private static Set<String> selectedCategories = new HashSet<String>();
     private static Set<String> capacityCategories = new HashSet<String>();
+    private static Set<String> counterCategories = new HashSet<String>();
     
     private static Map<String, String> categoriesTranslator = new HashMap<String, String>();
     
     static {
         String[] selected_vmstat = new String[] { "r", "b", "swpd", "bi", "bo", "in", "cs", "us", "sy", "id", "wa", "st" };
-        String[] selected_jstat = new String[] { "Timestamp", "EU", "OU", "PU", "YGC", "YGCT", "FGC", "FGCT", "S0", "S1", "E", "O", "P"};
+        String[] selected_jstat = new String[] { "Timestamp", "S0", "S1", "E", "O", "P", "EC", "OC", "PC", "EU", "OU", "PU", "YGC", "YGCT", "FGC", "FGCT", "GCT", "YGC#d/dt", "YGCT#d/dt", "FGC#d/dt", "FGCT#d/dt", "GCT#d/dt" };
         
         String[] jstat_capacity = new String[] { "S0C", "S1C", "EC", "OC", "PC" };
+        String[] jstat_counter = new String[] { "YGC", "YGCT", "FGC", "FGCT", "GCT" };
         
         for (String category : selected_vmstat) {
             selectedCategories.add(category);
@@ -63,6 +65,9 @@ public class Report {
         }
         for (String category : jstat_capacity) {
             capacityCategories.add(category);
+        }
+        for (String category : jstat_counter) {
+            counterCategories.add(category);
         }
         
         categoriesTranslator.put("r", "Processes waiting for runtime");
@@ -133,11 +138,17 @@ public class Report {
         categoriesTranslator.put("P", "Permanent space usage (%)");
         
         categoriesTranslator.put("YGC", "Number of young generation GC Events");
-        categoriesTranslator.put("YGCT", "Young garbage collection time");
+        categoriesTranslator.put("YGCT", "Young garbage collection total time");
         categoriesTranslator.put("FGC", "Number of full GC Events");
-        categoriesTranslator.put("FGCT", "Full garbage collection time");
-        categoriesTranslator.put("GCT", "Total garbage collection time");
+        categoriesTranslator.put("FGCT", "Full garbage collection total time");
+        categoriesTranslator.put("GCT", "Total garbage collection total time");
         
+        categoriesTranslator.put("YGC#d/dt", "Young generation GC Events per second");
+        categoriesTranslator.put("YGCT#d/dt", "Young garbage collection time per second");
+        categoriesTranslator.put("FGC#d/dt", "Full GC Events per second");
+        categoriesTranslator.put("FGCT#d/dt", "Full garbage collection time per second");
+        categoriesTranslator.put("GCT#d/dt", "Total garbage collection time per second");
+
         categoriesTranslator.put("Size", "Number of bytes of bytecode for the method");
         categoriesTranslator.put("Type", "Compilation type");
         categoriesTranslator.put("Method", "Method name is the method within the given class");
@@ -337,7 +348,7 @@ public class Report {
                     continue;
                 }
                 
-                // check for usable colums
+                // check for usable columns
                 try {
                     Double.parseDouble(values.get(0)[i]);
                     categoryTypes.put(categories[i], FieldType.DOUBLE);
@@ -370,6 +381,15 @@ public class Report {
                 dataset.addSeries(categories[i] + " average", new double[][] { referenceData, Report.runningAverage(valueData) });
                 dataset.addSeries(categories[i], new double[][] { referenceData, valueData });
                 categoryValues.put(categories[i], dataset);
+                
+                if (counterCategories.contains(categories[i])) {
+                    DefaultXYDataset diffDataset = new DefaultXYDataset();
+                    double[] diffValueData = diffOperator(valueData);
+                    
+                    diffDataset.addSeries(categories[i] + " average", new double[][] { referenceData, Report.runningAverage(diffValueData) });
+                    diffDataset.addSeries(categories[i], new double[][] { referenceData, diffValueData });
+                    categoryValues.put(categories[i] + "#d/dt", diffDataset);
+                }
             }
             values = null;
             
@@ -436,7 +456,21 @@ public class Report {
         }
         return valueData;
     }
-    
+
+    private static double[] diffOperator(double[] valueData) {
+        if (valueData.length <= 0) {
+            return valueData;
+        }
+        double[] diffResult = new double[valueData.length];
+        diffResult[0] = 0;
+        
+        for (int n = 1; n < valueData.length; n++) {
+            diffResult[n] = valueData[n] - valueData[n - 1];
+        }
+        
+        return diffResult;
+    }   
+
     private static double[] runningAverage(double[] valueData) {
         if (valueData.length <= 0) {
             throw new IllegalArgumentException("At leat one element is required to calculate an average.");
