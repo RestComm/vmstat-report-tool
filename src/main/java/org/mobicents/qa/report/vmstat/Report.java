@@ -10,6 +10,9 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.NumberFormat;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -52,7 +55,8 @@ public class Report {
     
     static {
         String[] selected_vmstat = new String[] { "r", "b", "swpd", "bi", "bo", "in", "cs", "us", "sy", "id", "wa", "st" };
-        String[] selected_jstat = new String[] { "Timestamp", "S0", "S1", "E", "O", "P", "EC", "OC", "PC", "EU", "OU", "PU", "YGC", "YGCT", "FGC", "FGCT", "GCT", "YGC#d/dt", "YGCT#d/dt", "FGC#d/dt", "FGCT#d/dt", "GCT#d/dt" };
+        String[] selected_jstat = new String[] { "Timestamp", "S0", "S1", "E", "O", "P", "EC", "OC", "PC", "EU", "OU", "PU", "YGC", "YGCT", "FGC", "FGCT",
+                "GCT", "YGC#d/dt", "YGCT#d/dt", "FGC#d/dt", "FGCT#d/dt", "GCT#d/dt" };
         
         String[] jstat_capacity = new String[] { "S0C", "S1C", "EC", "OC", "PC" };
         String[] jstat_counter = new String[] { "YGC", "YGCT", "FGC", "FGCT", "GCT" };
@@ -148,7 +152,7 @@ public class Report {
         categoriesTranslator.put("FGC#d/dt", "Full GC Events per second");
         categoriesTranslator.put("FGCT#d/dt", "Full garbage collection time per second");
         categoriesTranslator.put("GCT#d/dt", "Total garbage collection time per second");
-
+        
         categoriesTranslator.put("Size", "Number of bytes of bytecode for the method");
         categoriesTranslator.put("Type", "Compilation type");
         categoriesTranslator.put("Method", "Method name is the method within the given class");
@@ -163,7 +167,9 @@ public class Report {
     private static boolean printCharts = false;
     
     private static boolean bigCharts = false;
-
+    
+    private static boolean statsFile = false;
+    
     private static String defaultOutputFileName = "vmstat-report.pdf";
     
     private static void printInfo() {
@@ -176,6 +182,7 @@ public class Report {
         logger.info("Option: -h - HELP   - Shows this info and exits");
         logger.info("Option: -p - PRINT  - Print chart images in a subfolder");
         logger.info("Option: -o - OUTPUT - Chooses the filename of the output (in single file mode only)");
+        logger.info("Option: -s - STATS  - Writes a txt file with the statistical properties of the categories");
     }
     
     public static void main(String[] args) {
@@ -239,6 +246,11 @@ public class Report {
                     logger.info("Using alternate filename");
                     continue;
                 }
+                if ("-s".equals(string)) {
+                    statsFile = true;
+                    logger.info("Writing stat file");
+                    continue;
+                }
                 if ("-t".equals(string.substring(0, 2))) {
                     try {
                         period = Double.parseDouble(string.substring(2));
@@ -254,7 +266,7 @@ public class Report {
                 }
             }
         }
-        if (inOutput){
+        if (inOutput) {
             printInfo();
             return;
         }
@@ -337,6 +349,13 @@ public class Report {
             Map<String, XYDataset> categoryValues = new LinkedHashMap<String, XYDataset>();
             Map<String, FieldType> categoryTypes = new LinkedHashMap<String, FieldType>();
             
+            FileOutputStream statsFOS = null;
+            if (statsFile) {
+                String statsFileName = singleFile ? defaultOutputFileName.replaceAll(".pdf", ".txt") : filename.replaceAll(".csv", ".txt");
+                statsFOS = new FileOutputStream(statsFileName);
+                logger.info("Writting stats file '" + statsFileName + "'  ...");
+            }
+            
             for (int i = 0; i < categories.length; i++) {
                 if (!selectedCategories.contains(categories[i]) && !allCharts) {
                     logger.debug("Category " + categories[i] + " does not belong to selected categories. Dropping.");
@@ -363,6 +382,11 @@ public class Report {
                 DefaultXYDataset dataset = new DefaultXYDataset();
                 
                 double[] valueData = Report.getDoubleFromValues(values, rows, i);
+                if (statsFile) {
+                    String unit = categories[i].endsWith("C") ? "collections" : "unit";
+                    unit = categories[i].endsWith("U") ? "kbytes" : categories[i].endsWith("T") ? "sec" : unit;
+                    writeStatsToFile(categories[i], unit, valueData, statsFOS);
+                }
                 
                 // Check if a capacity category exists
                 String correspondingCapacityCategory = categories[i].substring(0, categories[i].length() - 1) + "C";
@@ -385,6 +409,10 @@ public class Report {
                 if (counterCategories.contains(categories[i])) {
                     DefaultXYDataset diffDataset = new DefaultXYDataset();
                     double[] diffValueData = diffOperator(valueData);
+                    
+                    if (statsFile) {
+                        writeStatsToFile(categories[i] + "#d/dt", categories[i].endsWith("T") ? "sec/sec" : "collections/sec", diffValueData, statsFOS);
+                    }
                     
                     diffDataset.addSeries(categories[i] + " average", new double[][] { referenceData, Report.runningAverage(diffValueData) });
                     diffDataset.addSeries(categories[i], new double[][] { referenceData, diffValueData });
@@ -420,7 +448,8 @@ public class Report {
                 String xLabel = "seconds";
                 String yLabel = category;
                 
-                JFreeChart chart = ChartFactory.createXYLineChart(title, xLabel, yLabel, categoryValues.get(category), PlotOrientation.VERTICAL, false, false, false);
+                JFreeChart chart = ChartFactory.createXYLineChart(title, xLabel, yLabel, categoryValues.get(category), PlotOrientation.VERTICAL, false, false,
+                        false);
                 BufferedImage image = chart.createBufferedImage(imageSizeX, imageSizeY);
                 
                 document.add(Image.getInstance(image, null));
@@ -456,11 +485,9 @@ public class Report {
         }
         return valueData;
     }
-
+    
     private static double[] diffOperator(double[] valueData) {
-        if (valueData.length <= 0) {
-            return valueData;
-        }
+        if (valueData.length <= 0) { return valueData; }
         double[] diffResult = new double[valueData.length];
         diffResult[0] = 0;
         
@@ -469,12 +496,10 @@ public class Report {
         }
         
         return diffResult;
-    }   
-
+    }
+    
     private static double[] runningAverage(double[] valueData) {
-        if (valueData.length <= 0) {
-            throw new IllegalArgumentException("At leat one element is required to calculate an average.");
-        }
+        if (valueData.length <= 0) { throw new IllegalArgumentException("At leat one element is required to calculate an average."); }
         
         double[] runningAverage = new double[valueData.length];
         runningAverage[0] = valueData[0];
@@ -486,4 +511,86 @@ public class Report {
         return runningAverage;
     }
     
+    private static void writeStatsToFile(String category, String unit, double[] values, FileOutputStream statsFOS) {
+        if (values.length == 0) {
+            logger.warn("Cannot write stat file: No values.");
+            return;
+        }
+        if (statsFOS == null) {
+            logger.warn("Cannot write stat file: No file to write to.");
+            return;
+        }
+        
+        double min = values[0];
+        double max = values[0];
+        double average = values[0];
+        double stdev = 0;
+        double sum = 0;
+        int samples = 1;
+        
+        for (double d; samples < values.length; samples++) {
+            if ((d = values[samples]) == Double.NaN) {
+                continue;
+            }
+            if (d < min) {
+                min = d;
+            }
+            if (d > max) {
+                max = d;
+            }
+            sum += d;
+            double oldAverage = average;
+            average = (oldAverage * (samples - 1) + d) / samples;
+            // average = oldAverage + (d - oldAverage) / (samples + 1);
+            
+            double diffAvg = average - oldAverage;
+            if (samples == 1) {
+                stdev = 2 * diffAvg * diffAvg;
+            } else {
+                stdev = ((1.0 - 1.0 / (samples - 1)) * stdev) + samples * diffAvg * diffAvg;
+            }
+        }
+        
+        try {
+            category = category.replaceAll("[^a-zA-Z0-9]", ""); // Remove non alphanum chars and invalid symbols
+            DecimalFormatSymbols dfs = new DecimalFormatSymbols();
+            dfs.setInfinity("0");
+            dfs.setNaN("0");
+            NumberFormat formatter = new DecimalFormat("#0.00", dfs); // Format doubles so there is no exponent
+            
+            StringBuilder sb = new StringBuilder();
+            sb.append(category).append(" SAMPLES IS ").append(formatter.format(samples - 1)).append(" ").append("samples").append(";\n");
+            statsFOS.write(sb.toString().getBytes());
+            logger.debug("Wrote to stat file: \"" + sb.substring(0, sb.length() - 1) + "\"");
+            
+            sb = new StringBuilder();
+            sb.append(category).append(" SUM IS ").append(formatter.format(sum)).append(" ").append(unit).append(";\n");
+            statsFOS.write(sb.toString().getBytes());
+            logger.debug("Wrote to stat file: \"" + sb.substring(0, sb.length() - 1) + "\"");
+            
+            sb = new StringBuilder();
+            sb.append(category).append(" MIN IS ").append(formatter.format(min)).append(" ").append(unit).append(";\n");
+            statsFOS.write(sb.toString().getBytes());
+            logger.debug("Wrote to stat file: \"" + sb.substring(0, sb.length() - 1) + "\"");
+            
+            sb = new StringBuilder();
+            sb.append(category).append(" MAX IS ").append(formatter.format(max)).append(" ").append(unit).append(";\n");
+            statsFOS.write(sb.toString().getBytes());
+            logger.debug("Wrote to stat file: \"" + sb.substring(0, sb.length() - 1) + "\"");
+            
+            sb = new StringBuilder();
+            sb.append(category).append(" AVG IS ").append(formatter.format(average)).append(" ").append(unit).append(";\n");
+            statsFOS.write(sb.toString().getBytes());
+            logger.debug("Wrote to stat file: \"" + sb.substring(0, sb.length() - 1) + "\"");
+            
+            sb = new StringBuilder();
+            sb.append(category).append(" STD IS ").append(formatter.format(stdev)).append(" ").append(unit).append(";\n");
+            statsFOS.write(sb.toString().getBytes());
+            logger.debug("Wrote to stat file: \"" + sb.substring(0, sb.length() - 1) + "\"");
+            
+            statsFOS.flush();
+        } catch (IOException e) {
+            logger.warn("Cannot write stat file: IO Excetion while writing to file: " + e.getMessage());
+        }
+    }
 }
