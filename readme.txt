@@ -1,3 +1,18 @@
+
+
+
+Try Restcomm Cloud NOW for FREE! 
+https://www.restcomm.com/sign-up/
+
+Zero download and install required.
+
+
+All Restcomm docs and downloads are now available at https://www.restcomm.com.
+
+
+
+
+
 How to run:
 
 1 - Compile with 'mvn install'
